@@ -410,14 +410,14 @@ if __name__ == "__main__":
                         #==================================
                         # input, predict, gt
                         x = copy.deepcopy(np.squeeze(xs[i][ind]))
-                        cmap = plt.get_cmap("Reds")
+                        cmapred = plt.get_cmap("Reds")
                         if i==0:
                             x[np.squeeze(msk)==0] = -1
-                            cmap.set_under('black')
+                            cmapred.set_under('black')
                         elif "quake" in args.dataset:
                             x[ex==0]=-1
                             cmap.set_under('grey')                    
-                        plt.imshow(x,cmap=cmap, interpolation="None",vmin=0,vmax=1)
+                        plt.imshow(x,cmap=cmapred, interpolation="None",vmin=0,vmax=1)
                         if i == compNum+1:
                             plt.colorbar()
 
