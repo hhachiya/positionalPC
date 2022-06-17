@@ -676,20 +676,29 @@ class branchInpaintingModel(InpaintingModel):
                 padding='same', use_bias=False, kernel_constraint=sconv_constraint
             ) for i in range(sCNNNum)
         ]
+        self.siteConvs2 = [
+            siteConv(
+                sconvChannels[i], (3,3), strides=(1,1), activation=sconvActivations[i],
+                padding='same', use_bias=False, kernel_constraint=sconv_constraint
+            ) for i in range(sCNNNum)
+        ]
 
         self.opeType = opeType
-        if "add" in opeType or opeType=="mul":
+        #if "add" in opeType or opeType=="mul":
+        if "add" in opeType or opeType=="mul" or opeType=="affine": # hachiya
             self.scenter = 0
 
         self.initValues = []
         self.siteFeatures = []
+        self.siteFeatures2 = [] # hachiya
         self.exist_imgs = []
         # 位置特性の初期値・学習するパラメータを設定
         for lind in self.siteLayers:
             i = lind - 1
             size = [1,self.img_rows//(2**i),self.img_cols//(2**i),1]
             # 乗算も加算もどちらでも初期値は0
-            if "add" in opeType or opeType=="mul":
+            #if "add" in opeType or opeType=="mul":
+            if "add" in opeType or opeType=="mul" or opeType=="affine": # hachiya
                 init_v = np.zeros(size)
 
             self.initValues.append(init_v)
@@ -701,7 +710,25 @@ class branchInpaintingModel(InpaintingModel):
                     dtype = tf.float32
                 )
             )
-            # pdb.set_trace()
+
+            # hachiya
+            if opeType=="affine":
+                self.siteFeatures.append(
+                    tf.Variable(
+                        init_v,
+                        trainable = True,
+                        name = f"siteFeature2-sparse{i}",
+                        dtype = tf.float32
+                    )
+                )                
+            # self.siteFeatures2.append(
+            #     tf.Variable(
+            #         init_v,
+            #         trainable = True,
+            #         name = f"siteFeature2-sparse{i}",
+            #         dtype = tf.float32
+            #     )
+            # )            
             resized_img = cv2.resize(
                 self.exist_img[0,:,:,0],
                 dsize=(
@@ -932,11 +959,19 @@ class branchPKConv_lSite(branchInpaintingModel):
                 sconvOut = self.siteFeatures[wind]
                 for sconv in self.siteConvs:
                     sconvOut = sconv(sconvOut)
-
-                if self.opeType=="mul":
+                #if self.opeType=="mul":
+                if self.opeType=="mul" or self.opeType=="affine": # hachiya
                     sconvOut = sconvOut + 1
+                                
+                # hachiya
+                if self.opeType=="affine":       
+                    sconvOut2 = self.siteFeatures[wind+1]
+                    for sconv in self.siteConvs2:
+                        sconvOut2 = sconv(sconvOut2)
+                    sconvOut = tf.concat([sconvOut,sconvOut2],axis=0)
 
                 encArgs.append(sconvOut)
+
             return encArgs
 
         # pdb.set_trace()

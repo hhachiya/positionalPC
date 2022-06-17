@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import pdb
 import cv2
+import copy
 from util import cmap,clip,nonhole,PSNR,rangeError,resultInpaint,SqueezedNorm
 
 def parse_args():
@@ -242,9 +243,6 @@ if __name__ == "__main__":
                 plt.ylabel("PSNR")
                 plt.savefig(f"{savepath}{os.sep}siteAroundPSNRs_comp{eind}.png")
 
-
-
-
     else:
 
         # 地域のプロット
@@ -326,7 +324,6 @@ if __name__ == "__main__":
                 # epochs.append(len(loss))
         
         if args.siteComp:# 位置特性の比較（差分を描画）
-            pdb.set_trace()
             site01_dist = siteFeatures[0] -siteFeatures[1]
             cmbwr = plt.get_cmap('bwr')
             cmbwr.set_under('black')
@@ -357,7 +354,6 @@ if __name__ == "__main__":
             plt.title("siteComparison")
             plt.colorbar(extend='both')
             plt.savefig(f"{savepath}{os.sep}siteComparison.png")
-            pdb.set_trace()
 
         compNum = len(experiments)
         
@@ -391,75 +387,125 @@ if __name__ == "__main__":
         # obsAroundRange = [np.min(obsAround_img),np.max(obsAround_img)]
         # obsAround_imgs.append(obsAround_img)
 
-        def comparisonPlot(xs,ex=exist,msk=mask,dirpath=savepath,savename="comp"):
+        def comparisonPlot(xs,ex=exist,msk=mask,dirpath=savepath,savename="comp",is_separate=False):
             for ind in range(xs[-1].shape[0]):
                 print(f"\r progress : {ind}/{xs[-1].shape[0]}",end="")
+               
 
-                # 最後尾が真値
-                # pdb.set_trace()
-                _truth = np.squeeze(xs[-1][ind])
-                nonh_img = nonhole(_truth,ex)
-                # truths.append(nonh_img)
-                xmax = max([np.max(x[ind]) for x in xs[1:]])
-                xmax = xmax*1.05
-                xmin = min([np.min(x[ind]) for x in xs[1:]])
+                if is_separate:
 
-                ## カラー画像用にtile
-                mask_rgb = np.tile(msk,(1,1,3)) # shape=[h,w,3]
-                exist_rgb = np.tile(ex[:,:,np.newaxis],(1,1,3)) # shape=[h,w,3]
+                    # 最後尾が真値
+                    _truth = np.squeeze(xs[-1][ind])
+                    nonh_img = nonhole(_truth,ex)
+                    # truths.append(nonh_img)
+                    xmax = max([np.max(x[ind]) for x in xs[1:]])
+                    xmax = xmax*1.05
+                    xmin = min([np.min(x[ind]) for x in xs[1:]])
 
-                plt.clf()
-                plt.close()
-                _, axes = plt.subplots(3, compNum+2, figsize=(5*(compNum+2), 15))
-                
-                for i in range(compNum+2):
-                    #==================================
-                    # 1行目（入力・予測値・真値）
-                    ## カラー画像に変換
-                    x = np.squeeze(cmap(xs[i][ind]))
-                    if i==0:
-                        x[mask_rgb==0] = 255 # マスク部分を白に
-                    if "quake" in args.dataset:
-                        x[exist_rgb==0] = 255 # 
+                    seperate_dir = f"{dirpath}{os.sep}{savename}{ind}_{testLabel[ind]}"
+                    if not os.path.isdir(seperate_dir):
+                        os.makedirs(seperate_dir)
+                    for i in range(compNum+2):
 
-                    axes[0,i].imshow(x)
-                    axes[0,i].set_title(titles[i])
-                    #==================================
-                    # 2行目
-                    ## 真値・予測値プロット
-                    _pred = np.squeeze(xs[i][ind])
-                    nonh_pred = nonhole(_pred,ex)
-                    axes[1,i].scatter(nonh_img, nonh_pred)
-                    axes[1,i].set_xlim(xmin,xmax)
-                    axes[1,i].set_ylim(xmin,xmax)
-                    if i==0:
-                        axes[1,i].set_xlabel("true value")
-                        axes[1,i].set_ylabel("pred value")
-                    #==================================
-                    # 3行目
-                    ## 誤差マップ                    
-                    err = _pred - _truth
-                    if i != 0 and i != compNum + 1:
-                        err = cm_bwr(clip(err,-0.3,0.3))[:,:,:3]
-                        axes[2,i].imshow(err)
-                        axes[2,i].set_title(f"PSNR:{PSNR(_pred,_truth,exist=ex)}")
-                    #==================================
-                    # 4行目
-                    ## 観測点周辺の真値・予測値プロット
-                    # obsAround_pred = nonhole(_pred,dilated_mask)
-                    # axes[3,i].scatter(obsAround_img, obsAround_pred)
-                    # axes[3,i].set_ylim(obsAroundRange[0],obsAroundRange[1])
-                    # if i==0:
-                    #     axes[3,i].set_xlabel("true value")
-                    #     axes[3,i].set_ylabel("pred value")
-                    #==================================
-                    # obsAround_preds[i].append(obsAround_pred)
-                    # predicts[i].append(nonh_pred)
+                        #==================================
+                        # input, predict, gt
+                        x = copy.deepcopy(np.squeeze(xs[i][ind]))
+                        cmap = plt.get_cmap("Reds")
+                        if i==0:
+                            x[np.squeeze(msk)==0] = -1
+                            cmap.set_under('black')
+                        elif "quake" in args.dataset:
+                            x[ex==0]=-1
+                            cmap.set_under('grey')                    
+                        plt.imshow(x,cmap=cmap, interpolation="None",vmin=0,vmax=1)
+                        if i == compNum+1:
+                            plt.colorbar()
 
-                plt.savefig(f"{dirpath}{os.sep}{savename}{ind}_{testLabel[ind]}.png")
+                        plt.savefig(f"{seperate_dir}{os.sep}{titles[i]}.pdf")                        
+                        plt.clf()
+                        plt.close()
+                        #==================================
+
+                        #==================================
+                        ## gt vs. predict
+                        _pred = np.squeeze(xs[i][ind])
+                        nonh_pred = nonhole(_pred,ex)
+                        plt.scatter(nonh_img, nonh_pred)
+                        plt.xlim(xmin,xmax)
+                        plt.ylim(xmin,xmax)
+                        if i==0:
+                            plt.xlabel("true",fontsize=16)
+                            plt.ylabel("predict",fontsize=16)
+                        plt.savefig(f"{seperate_dir}{os.sep}{titles[i]}_gtvspredict.pdf")
+                        plt.clf()
+                        plt.close()                                                    
+                        #==================================
+                else:
+                    # 最後尾が真値
+                    _truth = np.squeeze(xs[-1][ind])
+                    nonh_img = nonhole(_truth,ex)
+                    # truths.append(nonh_img)
+                    xmax = max([np.max(x[ind]) for x in xs[1:]])
+                    xmax = xmax*1.05
+                    xmin = min([np.min(x[ind]) for x in xs[1:]])
+
+                    ## カラー画像用にtile
+                    mask_rgb = np.tile(msk,(1,1,3)) # shape=[h,w,3]
+                    exist_rgb = np.tile(ex[:,:,np.newaxis],(1,1,3)) # shape=[h,w,3]
+
+                    plt.clf()
+                    plt.close()
+
+                    _, axes = plt.subplots(3, compNum+2, figsize=(5*(compNum+2), 15))
+                    
+                    for i in range(compNum+2):
+                        #==================================
+                        # 1行目（入力・予測値・真値）
+                        ## カラー画像に変換
+                        x = np.squeeze(cmap(xs[i][ind]))
+                        if i==0:
+                            x[mask_rgb==0] = 255 # マスク部分を白に
+                        if "quake" in args.dataset:
+                            x[exist_rgb==0] = 255
+                        axes[0,i].imshow(x)
+                        axes[0,i].set_title(titles[i])
+
+                        # 2行目
+                        ## 真値・予測値プロット
+                        _pred = np.squeeze(xs[i][ind])
+                        nonh_pred = nonhole(_pred,ex)
+                        axes[1,i].scatter(nonh_img, nonh_pred)
+                        axes[1,i].set_xlim(xmin,xmax)
+                        axes[1,i].set_ylim(xmin,xmax)
+                        if i==0:
+                            axes[1,i].set_xlabel("true value")
+                            axes[1,i].set_ylabel("pred value")
+                        #==================================
+                        # 3行目
+                        ## 誤差マップ                    
+                        err = _pred - _truth
+                        if i != 0 and i != compNum + 1:
+                            err = cm_bwr(clip(err,-0.3,0.3))[:,:,:3]
+                            axes[2,i].imshow(err)
+                            axes[2,i].set_title(f"PSNR:{PSNR(_pred,_truth,exist=ex)}")
+                        #==================================
+                        # 4行目
+                        ## 観測点周辺の真値・予測値プロット
+                        # obsAround_pred = nonhole(_pred,dilated_mask)
+                        # axes[3,i].scatter(obsAround_img, obsAround_pred)
+                        # axes[3,i].set_ylim(obsAroundRange[0],obsAroundRange[1])
+                        # if i==0:
+                        #     axes[3,i].set_xlabel("true value")
+                        #     axes[3,i].set_ylabel("pred value")
+                        #==================================
+                        # obsAround_preds[i].append(obsAround_pred)
+                        # predicts[i].append(nonh_pred)
+
+                    plt.savefig(f"{dirpath}{os.sep}{savename}{ind}_{testLabel[ind]}.png")
 
         if args.comparison:
             comparisonPlot(images)
+            comparisonPlot(images,is_separate=True)
         
         if args.regionPlot:
             for rind,key in enumerate(list(regions)):
@@ -473,6 +519,16 @@ if __name__ == "__main__":
                     msk=regMask,
                     dirpath=reg_paths[rind],
                     savename=f"region-{key}"
+                )
+
+                # seperate
+                comparisonPlot(
+                    regImgs,
+                    ex=regExist,
+                    msk=regMask,
+                    dirpath=reg_paths[rind],
+                    savename=f"region-{key}",
+                    is_separate = True
                 )
 
 

@@ -175,6 +175,7 @@ class PKConv(tf.keras.layers.Conv2D):
     def __init__(self, *args, opeType="mul", **kwargs):
         super().__init__(*args, **kwargs)
         self.input_spec = [InputSpec(min_ndim=4),InputSpec(min_ndim=4),InputSpec(min_ndim=4)]
+        #self.input_spec = [InputSpec(min_ndim=4),InputSpec(min_ndim=4),InputSpec(min_ndim=4),InputSpec(min_ndim=4)]
         self.opeType = opeType
 
     def build(self, input_shape):
@@ -243,9 +244,15 @@ class PKConv(tf.keras.layers.Conv2D):
             outputs_img = self._convolution_op((_img+_site)*_mask, self.kernel)
 
         elif self.opeType == "mul": # 位置特性を掛け算 W*P*X
-            # pdb.set_trace()
             pxs = _site * (_img * _mask)
             outputs_img = self._convolution_op(pxs, self.kernel) # 2022/02/28
+
+        elif self.opeType == "affine": #  W*P1*X + P2X, hachiya
+            pxs1 = _site[0] * (_img * _mask)
+            pxs2 = _site[1] * (_img * _mask)
+
+            px2 = self._convolution_op(pxs2,self.onesKernel)
+            outputs_img = self._convolution_op(pxs1, self.kernel) + px2
 
         outputs_mask = self._convolution_op(_mask, self.kernel_mask)
         # Calculate the mask ratio on each pixel in the output mask

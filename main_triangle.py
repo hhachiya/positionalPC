@@ -17,9 +17,9 @@ from scipy.spatial import Delaunay, delaunay_plot_2d
 import pykrige.kriging_tools as kt
 from pykrige.ok import OrdinaryKriging
 
-def calculateThreePointAndGroup(isTriangle=False, num_nn=3):
+def calculateThreePointAndGroup(triangle_type=1, num_nn=3):
 
-    if isTriangle:
+    if triangle_type > 0:
         #--------------------
         # create triangles
         print("create triangles...")    
@@ -36,6 +36,7 @@ def calculateThreePointAndGroup(isTriangle=False, num_nn=3):
         #--------------------
         # allocate target points to triangles
         modelingGroup = tri.simplices
+
         tri_inds = tri.find_simplex(targetPoints)
         groupIndexs = [list(np.where(tri_inds == i)[0]) for i in range(len(tri.simplices))]
 
@@ -52,6 +53,9 @@ def calculateThreePointAndGroup(isTriangle=False, num_nn=3):
 
         # assign to nearest triangle
         [groupIndexs[nearest_tri_ind[i]].append(no_tri_ind[i]) for i in range(len(no_tri_pnt))]
+
+        if triangle_type == 2:  # 2nd order triangle
+            modelingGroup = [np.unique(np.concatenate([tri.simplices[sim_ind], np.concatenate([modelingGroup[nei_ind] if nei_ind != -1 else [] for nei_ind in tri.neighbors[sim_ind]])])).astype(int) for sim_ind in range(len(modelingGroup))]
         #--------------------
     else:
         print("find nearest obs points...")
@@ -98,7 +102,8 @@ def parse_args():
     parser.add_argument('-method',type=str,help='name of method, e.g. \'GPR\'')
     parser.add_argument('-dataset','--dataset',type=str,default='stripe-rectData',help='name of dataset directory (default=gaussianToyData)')
     parser.add_argument('-is_calc_group','--is_calc_group',action='store_true')
-    parser.add_argument('-is_triangle','--is_triangle',action='store_true')
+    parser.add_argument('-triangle_type','--triangle_type',type=int,default=1,help='-1: nearest neighbor, 1:triangle, 2:2nd order triangle')
+    parser.add_argument('-is_2nd_triangle','--is_2nd_triangle',action='store_true')
     parser.add_argument('-num_nn','--num_nn',type=int,default=3,help='number of nearest neighbours')
     parser.add_argument('-prior_name','--prior_name',type=str,default='quake',help='prior name used for triangle.pdf and triangle.pickle')
     parser.add_argument('-posterior','--posterior',action='store_true')
@@ -107,6 +112,7 @@ def parse_args():
     return parser.parse_args()
 
 def idw(obsX, predX, y_obs, beta=1, dim=2):
+    obsX = np.array(obsX)    
     obs_num = len(obsX)
     pred_num = len(predX)
 
@@ -114,6 +120,22 @@ def idw(obsX, predX, y_obs, beta=1, dim=2):
     predX_tile = np.tile(np.expand_dims(predX,0), [obs_num,1,1])
     obsX_tile = np.tile(np.transpose(np.expand_dims(obsX,0),[1,0,2]),[1,pred_num,1])
     dist = np.sqrt(np.sum(np.square(predX_tile - obsX_tile),axis=-1))
+
+    # # relative obsX w.r.t. predX
+    # relX = (obsX_tile - predX_tile).transpose([1,0,2])
+    
+    # # sort by dist
+    # sort_inds = np.argsort(dist.T,axis=1)
+    # relX = np.take_along_axis(relX,np.expand_dims(sort_inds,-1),1)
+    
+    # # normalized dissimilality beteen relX
+    # relX_norm = np.linalg.norm(relX, axis=2, keepdims=1)
+    # alpha = np.matmul(relX,relX.transpose([0,2,1]))/np.matmul(relX_norm, relX_norm.transpose([0,2,1]))
+    # #sin = np.where(cos >= np.cos(2*np.pi/obs_num), np.ones_like(cos), np.power(1-np.square(cos),beta/2))
+
+    # cumulative dissimilarities
+    
+
 
     # inverse distance
     weight = np.power(dist, -beta)
@@ -142,10 +164,13 @@ if __name__ == "__main__":
     experiment_path = ".{0}experiment{0}{1}_logs".format(os.sep,args.experiment)
     method = args.method
     dspath = ".{0}data{0}{1}{0}".format(os.sep,args.dataset)
-    if args.is_triangle:
+    if args.triangle_type==1:
         referenceGroupFile = ".{0}experiment{0}{1}_group_triangle.pickle".format(os.sep,args.prior_name)
-    else:
+    elif args.triangle_type==2:
+        referenceGroupFile = ".{0}experiment{0}{1}_group_2nd_triangle.pickle".format(os.sep,args.prior_name)
+    elif args.triangle_type==-1:
         referenceGroupFile = ".{0}experiment{0}{1}_cluster_nn.pickle".format(os.sep,args.prior_name)
+
     triangleFile = ".{0}experiment{0}{1}_triangle.pdf".format(os.sep,args.prior_name)
     result_path = f"{experiment_path}{os.sep}result"
     test_path = f"{result_path}{os.sep}test"
@@ -190,7 +215,7 @@ if __name__ == "__main__":
 
     # すでに計算済みかどうか
     if args.is_calc_group:
-        summaryData = calculateThreePointAndGroup(isTriangle=args.is_triangle,num_nn=args.num_nn)
+        summaryData = calculateThreePointAndGroup(triangle_type=args.triangle_type,num_nn=args.num_nn)
     else:
         summaryData = pickle.load(open(referenceGroupFile,"rb")) 
       
@@ -225,12 +250,12 @@ if __name__ == "__main__":
 
             if method == 'GPR':
                 try:
-                    y_obs += np.random.random(3)*1e-5
+                    y_obs += np.random.random(len(y_obs))*1e-5
 
-                    #kernel = RBF()
-                    kernel = DotProduct()
+                    kernel = RBF()
+                    #kernel = DotProduct()
                     #gp = GaussianProcessRegressor(kernel=kernel,n_restarts_optimizer=20)
-                    gp = GaussianProcessRegressor(kernel=kernel )
+                    gp = GaussianProcessRegressor(kernel=kernel)
                     #gp = MyGPR(kernel=kernel)
                     gp.fit(obsX, y_obs)
                     #gp.fit(X_scaled, y_obs)
@@ -253,8 +278,8 @@ if __name__ == "__main__":
                 predX_array = np.array(predX).astype(float)
 
                 # avoid ill-posed problem when computing variogram
-                if y_obs[0] == y_obs[1] == y_obs[2]:
-                    y_obs += np.random.random(3)*1e-5
+                if len(np.unique(y_obs)) == 1:
+                    y_obs += np.random.random(len(y_obs))*1e-5
 
                 OK = OrdinaryKriging(obsX_array[:,0], obsX_array[:,1], y_obs, variogram_model='linear', verbose=False, enable_plotting=False)
                 z1, ss = OK.execute("grid",predX_array[:,0],predX_array[:,1])
@@ -266,8 +291,8 @@ if __name__ == "__main__":
                 predX_array = np.array(predX).astype(float)
 
                 # avoid ill-posed problem when computing variogram
-                if y_obs[0] == y_obs[1] == y_obs[2]:
-                    y_obs += np.random.random(3)*1e-5
+                if len(np.unique(y_obs)) == 1:
+                    y_obs += np.random.random(len(y_obs))*1e-5
 
                 OK = OrdinaryKriging(obsX_array[:,0], obsX_array[:,1], y_obs, variogram_model='exponential', verbose=False, enable_plotting=False)
                 z1, ss = OK.execute("grid",predX_array[:,0],predX_array[:,1])
@@ -279,8 +304,8 @@ if __name__ == "__main__":
                 predX_array = np.array(predX).astype(float)
 
                 # avoid ill-posed problem when computing variogram
-                if y_obs[0] == y_obs[1] == y_obs[2]:
-                    y_obs += np.random.random(3)*1e-5
+                if len(np.unique(y_obs)) == 1:
+                    y_obs += np.random.random(len(y_obs))*1e-5
 
                 OK = OrdinaryKriging(obsX_array[:,0], obsX_array[:,1], y_obs, variogram_model='exponential', verbose=False, enable_plotting=False)
                 z1, ss = OK.execute("grid",predX_array[:,0],predX_array[:,1])
